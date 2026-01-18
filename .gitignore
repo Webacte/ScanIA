@@ -1,0 +1,33 @@
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+client_secret*.json
+*credentials*.json
+*service-account*.json
+*.pem
+*.key
+
+# Build & deps
+node_modules/
+dist/
+
+# Logs & caches
+*.log
+.playwright/
+.cache/
+
+# Données sensibles / temporaires
+captcha-saves/
+current-leboncoin.html
+proxyServer/
+**/ResidentialProxies.txt

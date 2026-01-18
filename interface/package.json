@@ -1,0 +1,53 @@
+{
+  "name": "scanlecoin-interface",
+  "version": "1.0.0",
+  "description": "Interface web pour les alertes ScanLeCoin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm run build:css",
+    "build:css": "tailwindcss -i ./public/css/input.css -o ./public/css/output.css --watch",
+    "init-patterns": "node scripts/init-patterns.js",
+    "init-analysis": "node scripts/init-analysis-functions.js",
+    "init-simple": "node scripts/init-simple-analysis.js",
+    "init-all": "node scripts/init-complete-system.js",
+    "test-patterns": "node scripts/test-patterns-api.js",
+    "demo-patterns": "node scripts/demo-patterns.js",
+    "quick-test": "node scripts/quick-test-api.js",
+    "start-and-test": "node scripts/start-and-test.js",
+    "test-analyzer": "node scripts/test-model-analyzer.js",
+    "test-optimized": "node scripts/test-optimized-system.js",
+    "test-simple": "node scripts/test-simple-system.js",
+    "test-no-old": "node scripts/test-no-old-system.js",
+    "test-filtered": "node tests/test-filtered-search.js",
+    "test-complete": "node tests/test-complete-optimized-system.js",
+    "test-advanced": "node scripts/test-advanced-filtering.js",
+    "test-quick-advanced": "node scripts/test-quick-advanced.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "compression": "^1.7.4",
+    "multer": "^1.4.5-lts.1",
+    "@google-cloud/vision": "^4.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "tailwindcss": "^3.3.3",
+    "@tailwindcss/forms": "^0.5.4"
+  },
+  "keywords": [
+    "leboncoin",
+    "scraper",
+    "alerts",
+    "interface"
+  ],
+  "author": "ScanLeCoin",
+  "license": "MIT"
+}

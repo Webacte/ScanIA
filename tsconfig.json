@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": [
+    "bot/**/*.ts",
+    "test-production-no-db.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "bot/scripts/analyze-response.ts",
+    "bot/scripts/test-captcha-system.ts",
+    "bot/scripts/webshare-worker.ts",
+    "bot/src/scraper/ProductionLeboncoinScraper.ts"
+  ]
+}
