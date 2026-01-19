@@ -18,9 +18,19 @@ const multer = require('multer');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config();
 
-if (!process.env.DB_PASSWORD) {
-  console.error('ERREUR: DB_PASSWORD est requis. Copiez .env.example en .env et renseignez les variables.');
-  process.exit(1);
+// Vérification de la configuration de la base de données
+// En mode développement, on peut démarrer sans DB (mais certaines fonctionnalités seront limitées)
+// Note: Si le mot de passe contient des espaces, mettez-le entre guillemets dans .env: DB_PASSWORD="mon mot de passe"
+const DB_PASSWORD = process.env.DB_PASSWORD || '';
+const HAS_DB_CONFIG = !!DB_PASSWORD;
+
+if (!HAS_DB_CONFIG) {
+  console.warn('⚠️  ATTENTION: DB_PASSWORD n\'est pas défini.');
+  console.warn('   Le serveur démarrera mais les fonctionnalités nécessitant la base de données ne fonctionneront pas.');
+  console.warn('   Pour configurer: copiez .env.example en .env et renseignez DB_PASSWORD');
+  console.warn('   Si le mot de passe contient des espaces, utilisez des guillemets: DB_PASSWORD="mon mot de passe"');
+} else {
+  console.log('✅ DB_PASSWORD détecté (longueur: ' + DB_PASSWORD.length + ' caractères)');
 }
 
 // Import des modules locaux
@@ -48,11 +58,36 @@ const DB_CONFIG = {
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'scania',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD
+  password: DB_PASSWORD
 };
 
-// Initialiser le DatabaseManager
-const dbManager = new DatabaseManager(DB_CONFIG);
+// Initialiser le DatabaseManager (peut échouer si DB non configurée, mais le serveur continuera)
+let dbManager;
+try {
+  dbManager = new DatabaseManager(DB_CONFIG);
+  console.log('✅ DatabaseManager initialisé');
+  
+  // Tester la connexion
+  if (HAS_DB_CONFIG) {
+    dbManager.pool.query('SELECT NOW()').then(() => {
+      console.log('✅ Connexion à la base de données réussie');
+    }).catch((err) => {
+      console.error('❌ Erreur de connexion à la base de données:', err.message);
+      console.error('   Code:', err.code);
+      if (err.code === '28P01') {
+        console.error('   → Erreur d\'authentification. Vérifiez DB_USER et DB_PASSWORD dans .env');
+        console.error('   → Si le mot de passe contient des espaces, utilisez des guillemets: DB_PASSWORD="mon mot de passe"');
+      } else if (err.code === 'ECONNREFUSED') {
+        console.error('   → Impossible de se connecter. Vérifiez que PostgreSQL est démarré et que DB_HOST/DB_PORT sont corrects');
+      } else if (err.code === '3D000') {
+        console.error('   → Base de données non trouvée. Vérifiez DB_NAME dans .env');
+      }
+    });
+  }
+} catch (error) {
+  console.warn('⚠️  DatabaseManager non initialisé:', error.message);
+  console.warn('   Le serveur continuera mais les fonctionnalités DB seront indisponibles');
+}
 
 // Initialiser les analyseurs avec le dbManager (ancien système - désactivé)
 // const modelAnalyzer = new ModelAnalyzer(dbManager); // Remplacé par l'analyse SQL optimisée
@@ -71,11 +106,39 @@ app.use(express.static(path.join(__dirname, 'public')));
 // const alertManager = new AlertManager(dbManager); // Ancien système
 // const priceAnalyzer = new PriceAnalyzer(); // Ancien système
 // const autoAlertManager = new AutoAlertManager(dbManager); // Ancien système
-const referenceImageManager = new ReferenceImageManager(DB_CONFIG);
-const recognitionWorker = new RecognitionWorker(DB_CONFIG, {
-  apiKey: process.env.GOOGLE_VISION_API_KEY,
-  credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS
-});
+let referenceImageManager;
+let recognitionWorker;
+
+try {
+  if (HAS_DB_CONFIG) {
+    referenceImageManager = new ReferenceImageManager(DB_CONFIG);
+    recognitionWorker = new RecognitionWorker(DB_CONFIG, {
+      apiKey: process.env.GOOGLE_VISION_API_KEY,
+      credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS
+    });
+    console.log('✅ Managers de reconnaissance d\'images initialisés');
+    
+    // Tester l'accès aux tables
+    referenceImageManager.getReferenceObjects().then(() => {
+      console.log('✅ Tables de reconnaissance d\'images accessibles');
+    }).catch((err) => {
+      console.error('❌ Erreur d\'accès aux tables de reconnaissance:', err.message);
+      console.error('   Code:', err.code);
+      if (err.code === '42P01') {
+        console.error('   → Les tables n\'existent pas. Exécutez: npm run db:init-recognition');
+      }
+    });
+  } else {
+    console.warn('⚠️  Managers de reconnaissance non initialisés: DB_PASSWORD non configuré');
+  }
+} catch (error) {
+  console.warn('⚠️  Managers de reconnaissance non initialisés:', error.message);
+  console.warn('   Le serveur continuera mais les fonctionnalités de reconnaissance seront indisponibles');
+  console.warn('   Vérifiez votre configuration de base de données dans .env');
+  if (error.code) {
+    console.warn('   Code d\'erreur:', error.code);
+  }
+}
 
 // Configuration multer pour l'upload de fichiers
 const upload = multer({
@@ -99,8 +162,68 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     version: '2.0.0',
-    mode: 'image-recognition'
+    mode: 'image-recognition',
+    db_configured: HAS_DB_CONFIG,
+    db_connected: !!dbManager
   });
+});
+
+// Endpoint de test de connexion à la base de données
+app.get('/api/db-test', async (req, res) => {
+  if (!dbManager) {
+    return res.status(503).json({ 
+      error: 'DatabaseManager non initialisé',
+      message: 'DB_PASSWORD n\'est pas configuré dans .env',
+      config: {
+        has_password: HAS_DB_CONFIG,
+        db_host: DB_CONFIG.host,
+        db_port: DB_CONFIG.port,
+        db_name: DB_CONFIG.database,
+        db_user: DB_CONFIG.user
+      }
+    });
+  }
+  
+  try {
+    const result = await dbManager.pool.query('SELECT NOW() as current_time, version() as pg_version');
+    
+    // Vérifier si les tables de reconnaissance existent
+    const tablesCheck = await dbManager.pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'marketplace' 
+      AND table_name IN ('reference_objects', 'reference_images', 'search_tasks', 'image_matches')
+      ORDER BY table_name
+    `);
+    
+    const existingTables = tablesCheck.rows.map(r => r.table_name);
+    const requiredTables = ['reference_objects', 'reference_images', 'search_tasks', 'image_matches'];
+    const missingTables = requiredTables.filter(t => !existingTables.includes(t));
+    
+    res.json({ 
+      status: 'connected',
+      current_time: result.rows[0].current_time,
+      pg_version: result.rows[0].pg_version.split(' ')[0] + ' ' + result.rows[0].pg_version.split(' ')[1],
+      tables: {
+        existing: existingTables,
+        missing: missingTables,
+        all_present: missingTables.length === 0
+      },
+      hint: missingTables.length > 0 ? 'Les tables de reconnaissance d\'images n\'existent pas. Exécutez: npm run db:init-recognition' : undefined
+    });
+  } catch (error) {
+    console.error('❌ Erreur test DB:', error);
+    res.status(500).json({ 
+      error: 'Erreur de connexion',
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.code === '28P01' ? 'Erreur d\'authentification. Vérifiez DB_USER et DB_PASSWORD. Si le mot de passe contient des espaces, utilisez des guillemets dans .env' :
+             error.code === 'ECONNREFUSED' ? 'Impossible de se connecter. Vérifiez que PostgreSQL est démarré' :
+             error.code === '3D000' ? 'Base de données non trouvée. Vérifiez DB_NAME' :
+             undefined
+    });
+  }
 });
 
 // ============================================
@@ -636,15 +759,39 @@ app.post('/api/patterns', async (req, res) => {
 // Récupérer tous les objets de référence
 app.get('/api/reference-objects', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée. Veuillez configurer DB_PASSWORD dans .env'
+      });
+    }
     const { active_only } = req.query;
     const objects = await referenceImageManager.getReferenceObjects(active_only === 'true');
     res.json(objects);
   } catch (error) {
-    console.error('Erreur récupération objets de référence:', error);
+    console.error('❌ Erreur récupération objets de référence:', error);
+    console.error('   Message:', error.message);
+    console.error('   Code:', error.code);
+    console.error('   Detail:', error.detail);
+    console.error('   Stack:', error.stack);
+    
+    let hint = undefined;
+    if (error.code === '42P01') {
+      hint = 'Les tables de la base de données n\'existent pas. Exécutez: npm run db:init-recognition';
+    } else if (error.code === '28P01') {
+      hint = 'Erreur d\'authentification. Vérifiez DB_USER et DB_PASSWORD dans .env. Si le mot de passe contient des espaces, utilisez des guillemets.';
+    } else if (error.code === 'ECONNREFUSED') {
+      hint = 'Impossible de se connecter à PostgreSQL. Vérifiez que PostgreSQL est démarré et que DB_HOST/DB_PORT sont corrects.';
+    } else if (error.code === '3D000') {
+      hint = 'Base de données non trouvée. Vérifiez DB_NAME dans .env ou créez la base de données.';
+    }
+    
     res.status(500).json({ 
       error: 'Erreur serveur',
-      message: error.message,
-      code: error.code
+      message: error.message || 'Erreur lors de la récupération des objets',
+      code: error.code,
+      detail: error.detail,
+      hint: hint
     });
   }
 });
@@ -652,6 +799,12 @@ app.get('/api/reference-objects', async (req, res) => {
 // Récupérer un objet de référence par ID
 app.get('/api/reference-objects/:id', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const object = await referenceImageManager.getReferenceObject(parseInt(id));
     if (!object) {
@@ -670,6 +823,12 @@ app.get('/api/reference-objects/:id', async (req, res) => {
 // Créer un nouvel objet de référence
 app.post('/api/reference-objects', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { name, description, confidence_threshold } = req.body;
     
     if (!name) {
@@ -683,14 +842,42 @@ app.post('/api/reference-objects', async (req, res) => {
     );
     res.json(object);
   } catch (error) {
-    console.error('Erreur création objet:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('❌ Erreur création objet:', error);
+    console.error('   Message:', error.message);
+    console.error('   Code:', error.code);
+    console.error('   Detail:', error.detail);
+    console.error('   Stack:', error.stack);
+    
+    let hint = undefined;
+    if (error.code === '42P01') {
+      hint = 'Les tables de la base de données n\'existent pas. Exécutez: npm run db:init-recognition';
+    } else if (error.code === '28P01') {
+      hint = 'Erreur d\'authentification à la base de données. Vérifiez DB_PASSWORD dans .env. Si le mot de passe contient des espaces, utilisez des guillemets: DB_PASSWORD="mon mot de passe"';
+    } else if (error.code === 'ECONNREFUSED') {
+      hint = 'Impossible de se connecter à la base de données. Vérifiez que PostgreSQL est démarré et que DB_HOST/DB_PORT sont corrects';
+    } else if (error.code === '3D000') {
+      hint = 'Base de données non trouvée. Vérifiez DB_NAME dans .env ou créez la base de données';
+    }
+    
+    res.status(500).json({ 
+      error: 'Erreur serveur',
+      message: error.message || 'Erreur lors de la création de l\'objet',
+      code: error.code,
+      detail: error.detail,
+      hint: hint
+    });
   }
 });
 
 // Mettre à jour un objet de référence
 app.put('/api/reference-objects/:id', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const updates = req.body;
     
@@ -708,6 +895,12 @@ app.put('/api/reference-objects/:id', async (req, res) => {
 // Supprimer un objet de référence
 app.delete('/api/reference-objects/:id', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const deleted = await referenceImageManager.deleteReferenceObject(parseInt(id));
     if (!deleted) {
@@ -723,6 +916,12 @@ app.delete('/api/reference-objects/:id', async (req, res) => {
 // Upload des photos de référence pour un objet
 app.post('/api/reference-objects/:id/images', upload.array('images', 10), async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     
     if (!req.files || req.files.length === 0) {
@@ -750,6 +949,12 @@ app.post('/api/reference-objects/:id/images', upload.array('images', 10), async 
 // Supprimer une photo de référence
 app.delete('/api/reference-images/:id', async (req, res) => {
   try {
+    if (!referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const deleted = await referenceImageManager.deleteReferenceImage(parseInt(id));
     if (!deleted) {
@@ -765,6 +970,12 @@ app.delete('/api/reference-images/:id', async (req, res) => {
 // Servir une image de référence
 app.get('/api/reference-images/:id/file', async (req, res) => {
   try {
+    if (!dbManager || !referenceImageManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const client = await dbManager.pool.connect();
     try {
@@ -794,6 +1005,12 @@ app.get('/api/reference-images/:id/file', async (req, res) => {
 // Créer une nouvelle tâche de recherche
 app.post('/api/search-tasks', async (req, res) => {
   try {
+    if (!dbManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée. Veuillez configurer DB_PASSWORD dans .env'
+      });
+    }
     const { search_url, object_ids } = req.body;
     
     if (!search_url || !object_ids || !Array.isArray(object_ids) || object_ids.length === 0) {
@@ -822,9 +1039,13 @@ app.post('/api/search-tasks', async (req, res) => {
       }
 
       // Démarrer le traitement en arrière-plan
-      recognitionWorker.processSearchTask(task.id).catch(error => {
-        console.error('Erreur lors du traitement de la tâche:', error);
-      });
+      if (recognitionWorker) {
+        recognitionWorker.processSearchTask(task.id).catch(error => {
+          console.error('Erreur lors du traitement de la tâche:', error);
+        });
+      } else {
+        console.warn('⚠️  RecognitionWorker non disponible, la tâche ne sera pas traitée automatiquement');
+      }
 
       res.json(task);
     } finally {
@@ -839,6 +1060,12 @@ app.post('/api/search-tasks', async (req, res) => {
 // Récupérer toutes les tâches
 app.get('/api/search-tasks', async (req, res) => {
   try {
+    if (!dbManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const client = await dbManager.pool.connect();
     try {
       const result = await client.query(
@@ -848,19 +1075,43 @@ app.get('/api/search-tasks', async (req, res) => {
     } finally {
       client.release();
     }
-  } catch (error) {
-    console.error('Erreur récupération tâches:', error);
-    res.status(500).json({ 
-      error: 'Erreur serveur',
-      message: error.message,
-      code: error.code
-    });
-  }
+    } catch (error) {
+      console.error('❌ Erreur récupération tâches:', error);
+      console.error('   Message:', error.message);
+      console.error('   Code:', error.code);
+      console.error('   Detail:', error.detail);
+      console.error('   Stack:', error.stack);
+      
+      let hint = undefined;
+      if (error.code === '42P01') {
+        hint = 'Les tables de la base de données n\'existent pas. Exécutez: npm run db:init-recognition';
+      } else if (error.code === '28P01') {
+        hint = 'Erreur d\'authentification. Vérifiez DB_USER et DB_PASSWORD dans .env. Si le mot de passe contient des espaces, utilisez des guillemets.';
+      } else if (error.code === 'ECONNREFUSED') {
+        hint = 'Impossible de se connecter à PostgreSQL. Vérifiez que PostgreSQL est démarré et que DB_HOST/DB_PORT sont corrects.';
+      } else if (error.code === '3D000') {
+        hint = 'Base de données non trouvée. Vérifiez DB_NAME dans .env ou créez la base de données.';
+      }
+      
+      res.status(500).json({ 
+        error: 'Erreur serveur',
+        message: error.message || 'Erreur lors de la récupération des tâches',
+        code: error.code,
+        detail: error.detail,
+        hint: hint
+      });
+    }
 });
 
 // Récupérer une tâche par ID avec ses résultats
 app.get('/api/search-tasks/:id', async (req, res) => {
   try {
+    if (!dbManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const client = await dbManager.pool.connect();
     try {
@@ -916,6 +1167,12 @@ app.get('/api/search-tasks/:id', async (req, res) => {
 // Supprimer une tâche de recherche
 app.delete('/api/search-tasks/:id', async (req, res) => {
   try {
+    if (!dbManager) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données n\'est pas configurée'
+      });
+    }
     const { id } = req.params;
     const client = await dbManager.pool.connect();
     try {
@@ -952,6 +1209,12 @@ app.delete('/api/search-tasks/:id', async (req, res) => {
 // Lancer la reconnaissance sur une annonce spécifique
 app.post('/api/recognize', async (req, res) => {
   try {
+    if (!dbManager || !recognitionWorker) {
+      return res.status(503).json({ 
+        error: 'Service indisponible',
+        message: 'La base de données ou le service de reconnaissance n\'est pas configuré'
+      });
+    }
     const { listing_id, object_ids } = req.body;
     
     if (!listing_id || !object_ids || !Array.isArray(object_ids)) {
@@ -1036,10 +1299,12 @@ function sendRecognitionNotification(taskId, notification) {
   });
 }
 
-// Exporter la fonction pour le RecognitionWorker
-recognitionWorker.setNotificationCallback((taskId, notification) => {
-  sendRecognitionNotification(taskId, notification);
-});
+// Exporter la fonction pour le RecognitionWorker (si initialisé)
+if (recognitionWorker) {
+  recognitionWorker.setNotificationCallback((taskId, notification) => {
+    sendRecognitionNotification(taskId, notification);
+  });
+}
 
 // Démarrer le serveur
 server.listen(PORT, () => {

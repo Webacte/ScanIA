@@ -59,9 +59,23 @@ class SearchTasksManager {
   async loadReferenceObjects() {
     try {
       const response = await fetch('/api/reference-objects?active_only=true');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || errorData.error || `Erreur HTTP: ${response.status}`;
+        const error = new Error(errorMessage);
+        error.details = errorData;
+        throw error;
+      }
       this.referenceObjects = await response.json();
+      console.log('✅ Objets de référence chargés:', this.referenceObjects.length);
     } catch (error) {
-      console.error('Erreur lors du chargement des objets:', error);
+      console.error('❌ Erreur lors du chargement des objets:', error);
+      console.error('Détails:', error.details);
+      this.referenceObjects = [];
+      // Afficher un message d'erreur si on essaie d'afficher le formulaire
+      if (error.details?.hint) {
+        console.error('Suggestion:', error.details.hint);
+      }
     }
   }
 
@@ -69,16 +83,30 @@ class SearchTasksManager {
     try {
       const response = await fetch('/api/search-tasks');
       if (!response.ok) {
-        throw new Error('Erreur HTTP: ' + response.status);
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || errorData.error || `Erreur HTTP: ${response.status}`;
+        const error = new Error(errorMessage);
+        error.details = errorData;
+        throw error;
       }
       this.tasks = await response.json();
       this.renderTasksList();
     } catch (error) {
       console.error('Erreur lors du chargement des tâches:', error);
-      this.showNotification('Erreur lors du chargement des tâches', 'error');
+      console.error('Détails:', error.details);
+      const message = error.details?.hint || error.details?.message || error.message || 'Erreur lors du chargement des tâches';
+      this.showNotification(message, 'error');
       const container = document.getElementById('search-tasks-list');
       if (container) {
-        container.innerHTML = '<p class="text-red-500 text-center py-4">Erreur lors du chargement des tâches</p>';
+        let errorHtml = `<div class="text-red-500 text-center py-4">
+          <p class="font-semibold">Erreur lors du chargement des tâches</p>`;
+        if (error.details?.hint) {
+          errorHtml += `<p class="text-sm mt-2 text-gray-600">${error.details.hint}</p>`;
+        } else if (error.details?.message) {
+          errorHtml += `<p class="text-sm mt-2 text-gray-600">${error.details.message}</p>`;
+        }
+        errorHtml += `</div>`;
+        container.innerHTML = errorHtml;
       }
     }
   }
@@ -150,10 +178,17 @@ class SearchTasksManager {
     return labels[status] || status;
   }
 
-  showCreateForm() {
+  async showCreateForm() {
     const modal = document.getElementById('create-search-task-modal');
     if (modal) {
       modal.classList.remove('hidden');
+      
+      // Recharger les objets si la liste est vide
+      if (!this.referenceObjects || this.referenceObjects.length === 0) {
+        console.log('Rechargement des objets de référence...');
+        await this.loadReferenceObjects();
+      }
+      
       this.renderReferenceObjectsSelect();
     }
   }
@@ -168,6 +203,20 @@ class SearchTasksManager {
   renderReferenceObjectsSelect() {
     const container = document.getElementById('reference-objects-select');
     if (!container) return;
+
+    if (!this.referenceObjects || this.referenceObjects.length === 0) {
+      container.innerHTML = `
+        <div class="text-center py-4">
+          <p class="text-red-500 font-semibold mb-2">Aucun objet de référence disponible</p>
+          <p class="text-sm text-gray-600 mb-2">Créez d'abord des objets de référence dans l'onglet "Objets de Référence"</p>
+          <button onclick="searchTasksManager.goToReferenceObjects()" 
+                  class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">
+            Aller aux objets de référence
+          </button>
+        </div>
+      `;
+      return;
+    }
 
     container.innerHTML = this.referenceObjects.map(obj => `
       <label class="flex items-center space-x-2 p-2 hover:bg-gray-100 rounded cursor-pointer">
@@ -373,6 +422,17 @@ class SearchTasksManager {
     const modal = document.getElementById('task-detail-modal');
     if (modal) {
       modal.classList.add('hidden');
+    }
+  }
+
+  goToReferenceObjects() {
+    // Fermer le formulaire de création de tâche
+    this.hideCreateForm();
+    
+    // Changer d'onglet vers "Objets de Référence"
+    const tabButton = document.getElementById('tab-reference-objects');
+    if (tabButton) {
+      tabButton.click();
     }
   }
 

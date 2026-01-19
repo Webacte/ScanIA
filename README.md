@@ -62,7 +62,7 @@ npm run interface          # interface sur http://localhost:3000
 |----------|--------|-------------|
 | `DB_HOST` | | Hébergement PostgreSQL (défaut: localhost) |
 | `DB_PORT` | | Port PostgreSQL (défaut: 5432) |
-| `DB_NAME` | | Nom de la base (défaut: scanlecoin) |
+| `DB_NAME` | | Nom de la base (défaut: scania) |
 | `DB_USER` | | Utilisateur (défaut: postgres) |
 | `DB_PASSWORD` | **Oui** | Mot de passe PostgreSQL |
 | `INTERFACE_PORT` | | Port de l’interface (défaut: 3000) |

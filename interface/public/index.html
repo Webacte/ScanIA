@@ -241,6 +241,13 @@
                         section.classList.add('hidden');
                     });
                     document.getElementById(targetId).classList.remove('hidden');
+                    
+                    // Recharger les objets de référence quand on passe à l'onglet des tâches de recherche
+                    if (button.id === 'tab-search-tasks' && window.searchTasksManager) {
+                        window.searchTasksManager.loadReferenceObjects().catch(err => {
+                            console.error('Erreur lors du rechargement des objets:', err);
+                        });
+                    }
                 });
             });
         });

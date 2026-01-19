@@ -84,7 +84,7 @@ export class FinalProductionScraper {
     const dbConfig = config.database.config || {
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'scanlecoin',
+      database: process.env.DB_NAME || 'scania',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD
     };

@@ -46,6 +46,12 @@ class ReferenceImageManager {
       await fs.mkdir(objectDir, { recursive: true });
       
       return result.rows[0];
+    } catch (error) {
+      // Propager l'erreur avec plus de contexte
+      if (error.code === '42P01') {
+        error.message = `Table marketplace.reference_objects n'existe pas. Exécutez: npm run db:init-recognition`;
+      }
+      throw error;
     } finally {
       client.release();
     }
@@ -67,6 +73,10 @@ class ReferenceImageManager {
       return result.rows;
     } catch (error) {
       console.error('Erreur lors de la récupération des objets de référence:', error);
+      // Ajouter un message plus clair pour les erreurs de table manquante
+      if (error.code === '42P01') {
+        error.message = `Table marketplace.reference_objects n'existe pas. Exécutez: npm run db:init-recognition`;
+      }
       throw error;
     } finally {
       client.release();

@@ -31,3 +31,6 @@ captcha-saves/
 current-leboncoin.html
 proxyServer/
 **/ResidentialProxies.txt
+
+# Images de référence (données utilisateur)
+interface/reference-images/

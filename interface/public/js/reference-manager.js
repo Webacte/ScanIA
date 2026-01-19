@@ -38,10 +38,20 @@ class ReferenceManager {
       this.renderObjectsList();
     } catch (error) {
       console.error('Erreur lors du chargement des objets:', error);
-      this.showNotification('Erreur lors du chargement des objets', 'error');
+      console.error('Détails:', error.details);
+      const message = error.details?.hint || error.details?.message || error.message || 'Erreur lors du chargement des objets';
+      this.showNotification(message, 'error');
       const container = document.getElementById('reference-objects-list');
       if (container) {
-        container.innerHTML = '<p class="text-red-500 text-center py-4">Erreur lors du chargement des objets</p>';
+        let errorHtml = `<div class="text-red-500 text-center py-4">
+          <p class="font-semibold">Erreur lors du chargement des objets</p>`;
+        if (error.details?.hint) {
+          errorHtml += `<p class="text-sm mt-2 text-gray-600">${error.details.hint}</p>`;
+        } else if (error.details?.message) {
+          errorHtml += `<p class="text-sm mt-2 text-gray-600">${error.details.message}</p>`;
+        }
+        errorHtml += `</div>`;
+        container.innerHTML = errorHtml;
       }
     }
   }
@@ -121,7 +131,11 @@ class ReferenceManager {
       });
 
       if (!response.ok) {
-        throw new Error('Erreur lors de la création');
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || errorData.error || 'Erreur lors de la création';
+        const error = new Error(errorMessage);
+        error.details = errorData;
+        throw error;
       }
 
       const newObject = await response.json();
@@ -135,7 +149,17 @@ class ReferenceManager {
       this.viewObject(newObject.id);
     } catch (error) {
       console.error('Erreur:', error);
-      this.showNotification('Erreur lors de la création', 'error');
+      console.error('Détails:', error.details);
+      const message = error.details?.hint || error.details?.message || error.message || 'Erreur lors de la création';
+      this.showNotification(message, 'error');
+      
+      // Afficher un message plus détaillé dans la console
+      if (error.details?.code) {
+        console.error('Code d\'erreur:', error.details.code);
+        if (error.details.hint) {
+          console.error('Suggestion:', error.details.hint);
+        }
+      }
     }
   }
 

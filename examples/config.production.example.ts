@@ -10,11 +10,11 @@ import { DatabaseConfig } from '../src/types';
 
 // Configuration de la base de données
 export const databaseConfig: DatabaseConfig = {
-  host: 'localhost',           // Adresse de votre serveur PostgreSQL
-  port: 5432,                  // Port PostgreSQL
-  database: 'scanlecoin',      // Nom de votre base de données
-  user: 'postgres',            // Nom d'utilisateur PostgreSQL
-  password: 'your_secure_password_here'  // Mot de passe PostgreSQL
+  host: process.env.DB_HOST || 'localhost',           // Adresse de votre serveur PostgreSQL
+  port: parseInt(process.env.DB_PORT || '5432'),                  // Port PostgreSQL
+  database: process.env.DB_NAME,      // Nom de votre base de données
+  user: process.env.DB_USER,            // Nom d'utilisateur PostgreSQL
+  password: process.env.DB_PASSWORD  // Mot de passe PostgreSQL
 };
 
 // Configuration du comportement humain (ralenti pour éviter la détection)
