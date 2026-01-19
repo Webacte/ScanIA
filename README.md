@@ -1,4 +1,4 @@
-# ScanLeCoin
+# ScanIA
 
 Scraper Leboncoin avec interface web d’alertes de prix. Projet personnel à but éducatif pour faire de la veille sur les annonces et repérer les bonnes affaires.
 
@@ -44,7 +44,7 @@ npm run interface:install
 
 # 2. Configuration
 cp .env.example .env
-# Éditer .env et renseigner au minimum DB_PASSWORD (et DB_* si différent de localhost/postgres/scanlecoin)
+# Éditer .env et renseigner au minimum DB_PASSWORD (et DB_* si différent de localhost/postgres/scania)
 
 # 3. Base de données
 npm run db:init
